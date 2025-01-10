@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"runtime"
 	"strconv"
 	"strings"
@@ -61,16 +61,99 @@ func goid() int {
 	return id
 }
 
-func GetKeyring() (*Keyring, error) {
+type ThreadKeyring struct {
+	rw        sync.RWMutex
+	wg        sync.WaitGroup
+	addkey    chan *addkeyMsg
+	removekey chan *removekeyMsg
+	readkey   chan *readkeyMsg
+}
+
+type addkeyMsg struct {
+	name string
+	key  []byte
+	cb   chan error
+}
+
+type removekeyMsg struct {
+	name string
+	cb   chan error
+}
+
+type readkeyRet struct {
+	key []byte
+	err error
+}
+
+type readkeyMsg struct {
+	name string
+	cb   chan *readkeyRet
+}
+
+func GetKeyring(ctx context.Context) (*ThreadKeyring, error) {
+	var tk ThreadKeyring
 	var err error
-	once.Do(func() {
-		fmt.Println("created keyring")
-		agentKeyring, err = session.CreateKeyring()
+
+	tk.addkey = make(chan *addkeyMsg)
+	tk.removekey = make(chan *removekeyMsg)
+	tk.readkey = make(chan *readkeyMsg)
+
+	tk.wg.Add(1)
+	go func() {
+		var ak *Keyring
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		ak, err = session.CreateKeyring()
 		if err != nil {
-			log.Fatal(err)
+			return
 		}
-	})
-	return agentKeyring, err
+		for {
+			select {
+			case msg := <-tk.addkey:
+				tk.rw.Lock()
+				msg.cb <- ak.AddKey(msg.name, msg.key)
+				tk.rw.Unlock()
+			case msg := <-tk.readkey:
+				tk.rw.Lock()
+				key, err := ak.ReadKey(msg.name)
+				msg.cb <- &readkeyRet{key, err}
+				tk.rw.Unlock()
+			case msg := <-tk.removekey:
+				tk.rw.Lock()
+				msg.cb <- ak.RemoveKey(msg.name)
+				tk.rw.Unlock()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return &tk, err
+}
+
+func (tk *ThreadKeyring) Wait() {
+	tk.wg.Wait()
+}
+
+func (tk *ThreadKeyring) AddKey(name string, key []byte) error {
+	cb := make(chan error)
+	tk.addkey <- &addkeyMsg{name, key, cb}
+	return <-cb
+}
+
+func (tk *ThreadKeyring) RemoveKey(name string) error {
+	cb := make(chan error)
+	tk.removekey <- &removekeyMsg{name, cb}
+	return <-cb
+}
+
+func (tk *ThreadKeyring) ReadKey(name string) ([]byte, error) {
+	cb := make(chan *readkeyRet)
+	tk.readkey <- &readkeyMsg{name, cb}
+	ret := <-cb
+	if ret.err != nil {
+		return nil, ret.err
+	}
+	return ret.key, nil
 }
 
 type Keyring struct {

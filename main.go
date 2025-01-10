@@ -1,34 +1,50 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure cancel is called at the end to clean up
 
-	agentkeyring, err := GetKeyring()
+	agentkeyring, err := GetKeyring(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = agentkeyring.AddKey("this works", []byte("test"))
-	if err != nil {
-		fmt.Println(err)
-	}
-	err = agentkeyring.AddKey("this works again", []byte("test"))
-	if err != nil {
-		fmt.Println(err)
-	}
+	time.Sleep(1 * time.Second)
 
-	// Comment out this line, and everything works
+	err = agentkeyring.AddKey("test", []byte("Hello World"))
+	fmt.Println(err)
+	b, err := agentkeyring.ReadKey("test")
+	fmt.Println(string(b))
+	fmt.Println(err)
+	err = agentkeyring.RemoveKey("test")
+	fmt.Println(err)
+	b, err = agentkeyring.ReadKey("test")
+	fmt.Println(string(b))
+	fmt.Println(err)
+	fmt.Println("----")
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP)
 
-	err = agentkeyring.AddKey("this works does not work", []byte("test"))
-	if err != nil {
-		fmt.Println(err)
-	}
+	err = agentkeyring.AddKey("test", []byte("Hello World"))
+	fmt.Println(err)
+	b, err = agentkeyring.ReadKey("test")
+	fmt.Println(string(b))
+	fmt.Println(err)
+	err = agentkeyring.RemoveKey("test")
+	fmt.Println(err)
+	b, err = agentkeyring.ReadKey("test")
+	fmt.Println(string(b))
+	fmt.Println(err)
+
+	agentkeyring.Wait()
 }
