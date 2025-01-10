@@ -82,50 +82,19 @@ func (ring *Keyring) keyID() (int, error) {
 }
 
 func (ring *Keyring) CreateKeyring() (*Keyring, error) {
-	runtime.LockOSThread() // ensure target user keyring remains possessed in thread keyring
-	defer runtime.UnlockOSThread()
-	// ringid, err := ring.keyID()
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// id, err := unix.AddKey("keyring", "ssh-tpm-agent", nil, unix.KEY_SPEC_SESSION_KEYRING)
-	// if err != nil {
-	// 	return nil, err
-	// }
 	id, err := unix.KeyctlJoinSessionKeyring("ssh-tpm-agent")
 	if err != nil {
 		return nil, err
 	}
-
-	// _, err = unix.KeyctlInt(unix.KEYCTL_LINK, id, unix.KEY_SPEC_THREAD_KEYRING, 0, 0)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	fmt.Println(id, goid())
 	return &Keyring{ringid: id}, nil
 }
 
 func (k *Keyring) AddKey(name string, b []byte) error {
-	runtime.LockOSThread() // ensure target user keyring remains possessed in thread keyring
-	defer runtime.UnlockOSThread()
 	fmt.Println("addkey ", name, k.ringid, goid())
 	_, err := unix.AddKey("user", name, b, k.ringid)
 	if err != nil {
 		return fmt.Errorf("failed add-key: %v", err)
 	}
-	// kid, err := unix.AddKey("user", name, b, unix.KEY_SPEC_THREAD_KEYRING)
-	// if err != nil {
-	// 	return fmt.Errorf("failed add-key: %v", err)
-	// }
-	// _, err = unix.KeyctlInt(unix.KEYCTL_LINK, kid, k.ringid, 0, 0)
-	// if err != nil {
-	// 	return fmt.Errorf("failed keyctl-link for add-key: %v", err)
-	// }
-	// _, err = unix.KeyctlInt(unix.KEYCTL_UNLINK, kid, unix.KEY_SPEC_THREAD_KEYRING, 0, 0)
-	// if err != nil {
-	// 	return fmt.Errorf("failed keyctl-unlink for add-key: %v", err)
-	// }
 	return nil
 }
 
@@ -137,28 +106,21 @@ func (k *Keyring) keyctlRead(id int) ([]byte, error) {
 	}
 	buffer = make([]byte, sz)
 	if _, err = unix.KeyctlBuffer(unix.KEYCTL_READ, int(id), buffer, 0); err != nil {
-		// We'll probably not deal with large enough things
 		return nil, err
 	}
 	return buffer, nil
 }
 
 func (k *Keyring) ReadKey(name string) ([]byte, error) {
-	runtime.LockOSThread() // ensure target user keyring remains possessed in thread keyring
-	defer runtime.UnlockOSThread()
 	fmt.Println("readkey ", k.ringid, goid())
-	// k.Describe()
 	id, err := unix.RequestKey("user", name, "", k.ringid)
 	if err != nil {
-		// return nil, fmt.Errorf("failed request-key: %v", err)
 		return nil, err
 	}
 	return k.keyctlRead(id)
 }
 
 func (k *Keyring) RemoveKey(name string) error {
-	runtime.LockOSThread() // ensure target user keyring remains possessed in thread keyring
-	defer runtime.UnlockOSThread()
 	id, err := unix.RequestKey("user", name, "", k.ringid)
 	if err != nil {
 		return fmt.Errorf("failed remove-key: %v", err)
